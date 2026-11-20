@@ -102,8 +102,8 @@ function render(){
   const current=screens[active];
   nav.innerHTML=Object.entries(screens).map(([key,value])=>`<button type="button" data-nav="${key}" ${key===active?'aria-current="page"':''}>${value.title}</button>`).join('');
   const rows=records.filter(r=>r.kind===active).map(row);
-  screen.innerHTML=`<div class="intro"><h1>${current.title}</h1>${ready&&(rows.length||!['exhibit','video'].includes(active))?button(current.action,'add',active,true):''}</div>`+
-    (ready&&!rows.length&&(active==='exhibit'||active==='video')?
+  screen.innerHTML=`<div class="intro"><h1>${current.title}</h1>${ready&&rows.length?button(current.action,'add',active,true):''}</div>`+
+    (ready&&!rows.length?
       `<section class="card entry"><h2>${current.action}</h2>${recordForm(active)}</section>`:'')+
     (rows.length?`<div class="record"><table aria-label="${current.title}"><thead><tr>${current.columns.map(c=>`<th scope="col">${c}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:
     `<div class="card empty">${ready?current.empty:'Records are unavailable'}</div>`);
@@ -121,7 +121,7 @@ const fields=(kind,id)=>{
   const officer=input('Recorded by','officer');
   const options=exhibits().map(r=>[r.id,ref(r.id)+' · '+r.description]);
   const linked=id?`<input type="hidden" name="exhibit" value="${id}"><p><strong>Exhibit</strong> ${ref(id)}</p>`:
-    select('Link to','exhibit',kind==='video'?[['case','Case TR-2026-014'],...options]:options);
+    select(kind==='video'?'Link to':'Exhibit','exhibit',kind==='video'?[['case','Case TR-2026-014'],...options]:options);
   switch(kind){
     case 'exhibit':return input('Description','description')+select('Evidence type','type',['Biological','Digital','Trace','Physical','Other'].map(type=>[type,type]))+
       input('Location found','location')+input('Collection date and time','time','datetime-local')+officer+input('Package or seal reference','seal')+notes('Notes','notes');
@@ -135,8 +135,10 @@ const fields=(kind,id)=>{
   }
 };
 function recordForm(kind,id,modal=false){
-  return `<form data-kind="${kind}"><div class="fields">${fields(kind,id)}</div><p class="error" role="alert" hidden></p>
-    <div class="toolbar"><button class="btn primary" type="submit">${kind==='video'?'Save video':'Save record'}</button>${modal?button('Cancel','close'):''}</div></form>`;
+  const needsExhibit=(kind==='request'||kind==='transfer')&&!exhibits().length;
+  const guidance=needsExhibit?`<p class="muted">Save an exhibit in the Evidence Register before saving this record.</p>`:'';
+  return `<form data-kind="${kind}">${guidance}<div class="fields">${fields(kind,id)}</div><p class="error" role="alert" hidden></p>
+    <div class="toolbar"><button class="btn primary" type="submit" ${needsExhibit?'disabled':''}>${kind==='video'?'Save video':'Save record'}</button>${modal?button('Cancel','close'):''}</div></form>`;
 }
 function edit(kind,id){
   if((kind==='request'||kind==='transfer')&&!exhibits().length){
@@ -203,6 +205,9 @@ document.addEventListener('submit',async event=>{
   entry.kind=form.dataset.kind;
   entry.recordedAt=new Date().toISOString();
   if(entry.exhibit)entry.exhibit=entry.exhibit==='case'?null:Number(entry.exhibit);
+  if((entry.kind==='request'||entry.kind==='transfer')&&!exhibits().some(exhibit=>exhibit.id===entry.exhibit)){
+    error.textContent='Select a saved exhibit.';error.hidden=false;return;
+  }
   save.disabled=true;
   try{
     await transact('readwrite',store=>store.add(entry));
