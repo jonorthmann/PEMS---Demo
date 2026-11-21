@@ -22,16 +22,36 @@ dialog{width:min(480px,calc(100% - 30px));border:1px solid var(--line);border-ra
 @media(max-width:440px){.grid,.grid.three{grid-template-columns:1fr}}
 
 label{display:grid;gap:5px;font-weight:650}input,select,textarea{width:100%;font:inherit;padding:8px;border:1px solid #b4c4d1;border-radius:5px;color:inherit;background:white}textarea{min-height:85px}.fields{display:grid;gap:14px;margin-bottom:18px}dialog{max-height:90vh;overflow:auto}video{width:100%;max-height:55vh;margin-bottom:12px}.entry{margin-bottom:16px;max-width:740px}.entry .fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));align-items:start}.entry textarea{min-height:76px}.casebar{margin-bottom:24px}.casebar p{margin:0}.error{color:#a42525}td button{white-space:nowrap}.intro{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.intro h1{margin:0}form .toolbar{margin-bottom:0}
+
+[hidden]{display:none!important}.signin{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at top,#26445e,#102139 65%)}.signin-card{width:min(100%,440px);padding:32px}.crest{display:grid;place-items:center;width:76px;height:88px;background:#142e48;color:#f6db9d;clip-path:polygon(0 0,100% 0,100% 69%,50% 100%,0 69%);font-weight:800;letter-spacing:.12em;margin-bottom:18px}.signin h1{font-size:1.65rem}.signin form,.signin details{margin-top:20px}.signin summary{cursor:pointer;font-weight:650}.signin .btn{margin-top:10px}.session{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 </style>
 </head>
 <body>
-<div class="shell">
+<section class="signin" id="signin" aria-labelledby="signin-title">
+<div class="card signin-card">
+<div class="crest" aria-hidden="true">PEMS</div>
+<span class="review">Training prototype</span>
+<h1 id="signin-title">Police Evidence Management System</h1>
+<form id="login-form">
+<label>Student ID<input name="student_id" required maxlength="40" autocomplete="off"></label>
+<button class="btn primary" type="submit">Sign in</button>
+<p id="signin-status" role="status"></p>
+</form>
+<p class="muted">Demo IDs: PEMS-001 and PEMS-002. Use fictional learner details.</p>
+<details><summary>Load a training roster</summary>
+<p class="muted">Choose a CSV with columns <code>student_id,name</code>. The roster is saved in this browser.</p>
+<label>Roster CSV<input id="roster-file" type="file" accept=".csv,text/csv"></label>
+<p id="roster-status" role="status"></p>
+</details>
+</div>
+</section>
+<div class="shell" id="workspace" hidden>
 <aside>
 <div class="brand"><span class="mark" aria-hidden="true">PE</span><div><strong>PEMS</strong><small>Police Evidence Management System</small></div></div>
 <nav aria-label="Case records" id="nav"></nav>
 </aside>
 <div>
-<header><strong>Case TR-2026-014</strong><span class="review">Training prototype</span></header>
+<header><strong>Case TR-2026-014</strong><div class="session"><span id="signed-in-user"></span><button type="button" class="btn" id="signout">Sign out</button></div></header>
 <main>
 <section class="card casebar" aria-label="Case details">
 <p><strong>Office theft and assault</strong> · <span class="pill">Open</span></p>
@@ -47,6 +67,72 @@ label{display:grid;gap:5px;font-weight:650}input,select,textarea{width:100%;font
 <div id="dialog-body"></div>
 </dialog>
 <script>
+const demoRoster=[{id:'PEMS-001',name:'Alex Morgan'},{id:'PEMS-002',name:'Sam Taylor'}];
+const rosterKey='pems-training-roster-v1';
+let roster=demoRoster,learner=null;
+try{
+  const saved=localStorage.getItem(rosterKey);
+  if(saved)roster=JSON.parse(saved);
+}catch{/* Built-in demo IDs remain available when storage is disabled. */}
+const signIn=document.querySelector('#signin'), workspace=document.querySelector('#workspace');
+const loginForm=document.querySelector('#login-form');
+const loginStatus=document.querySelector('#signin-status');
+const rosterStatus=document.querySelector('#roster-status');
+const normalizeId=value=>value.trim().toUpperCase();
+function parseRoster(csv){
+  const lines=csv.replace(/^\uFEFF/,'').split(/\r\n|\n|\r/).filter(line=>line.trim());
+  if(!/^"?student_id"?\s*,\s*"?name"?$/i.test(lines.shift()?.trim()??'')){
+    throw new Error('Use the CSV header student_id,name.');
+  }
+  if(!lines.length)throw new Error('Add at least one learner to the roster.');
+  const ids=new Set();
+  return lines.map((line,index)=>{
+    const match=line.match(/^\s*(?:"([^"]+)"|([^",]+))\s*,\s*(?:"((?:[^"]|"")*)"|([^",]*))\s*$/);
+    if(!match)throw new Error('Check the two fields on learner row '+(index+1)+'.');
+    const id=normalizeId(match[1]??match[2]),name=(match[3]??match[4]).replaceAll('""','"').trim();
+    if(!/^[A-Z0-9][A-Z0-9_-]{0,39}$/.test(id)||/^784\d{12}$/.test(id.replaceAll('-',''))||!name){
+      throw new Error('Enter a training student ID and name on learner row '+(index+1)+'.');
+    }
+    if(ids.has(id))throw new Error('Duplicate student ID on learner row '+(index+1)+'.');
+    ids.add(id);
+    return {id,name};
+  });
+}
+document.querySelector('#roster-file').addEventListener('change',async event=>{
+  const input=event.currentTarget,file=input.files[0];
+  if(!file)return;
+  input.disabled=true;
+  try{
+    const incoming=parseRoster(await file.text());
+    localStorage.setItem(rosterKey,JSON.stringify(incoming));
+    roster=incoming;
+    rosterStatus.textContent='Loaded '+incoming.length+' learners. Sign in with an ID from this roster.';
+  }catch(error){
+    rosterStatus.textContent='Roster could not be loaded. '+error.message;
+  }finally{input.disabled=false;input.value='';}
+});
+loginForm.addEventListener('submit',event=>{
+  event.preventDefault();
+  const id=normalizeId(new FormData(loginForm).get('student_id'));
+  const match=roster.find(item=>item.id===id);
+  if(!match){loginStatus.textContent='Student ID was not found in the current training roster.';return;}
+  learner=match;
+  loginStatus.textContent='';
+  document.querySelector('#signed-in-user').textContent=learner.name+' · '+learner.id;
+  signIn.hidden=true;
+  workspace.hidden=false;
+  active='exhibit';
+  message('');
+  refresh();
+});
+document.querySelector('#signout').addEventListener('click',()=>{
+  learner=null;
+  if(dialog.open)dialog.close();
+  workspace.hidden=true;
+  signIn.hidden=false;
+  loginForm.reset();
+  loginForm.querySelector('input').focus();
+});
 const screens={
   exhibit:{title:'Evidence Register',action:'Add exhibit',empty:'No exhibits recorded',
     columns:['Reference','Description','Type','Found at','Current custody']},
@@ -61,14 +147,17 @@ const nav=document.querySelector('#nav'),screen=document.querySelector('#screen'
 const dialog=document.querySelector('#editor'),body=document.querySelector('#dialog-body');
 const notice=document.querySelector('#notice');
 let active='exhibit',records=[],ready=false,objectUrl,renderVersion=0;
-const database=new Promise((resolve,reject)=>{
+let database;
+function openDatabase(){
+return new Promise((resolve,reject)=>{
   const request=indexedDB.open('pems-training-case-TR-2026-014',1);
   request.onupgradeneeded=()=>request.result.createObjectStore('records',{keyPath:'id',autoIncrement:true});
   request.onsuccess=()=>resolve(request.result);
   request.onerror=()=>reject(request.error);
 });
+}
 async function transact(mode,operation){
-  const db=await database;
+  const db=await (database??=openDatabase());
   return new Promise((resolve,reject)=>{
     const tx=db.transaction('records',mode);
     const request=operation(tx.objectStore('records'));
@@ -118,7 +207,7 @@ const input=(label,name,type='text',value='')=>`<label>${label}<input name="${na
 const notes=(label,name,required=false)=>`<label>${label}<textarea name="${name}" ${required?'required':''}></textarea></label>`;
 const select=(label,name,options)=>`<label>${label}<select name="${name}" required><option value="">Select</option>${options.map(([value,text])=>`<option value="${escape(value)}">${escape(text)}</option>`).join('')}</select></label>`;
 const fields=(kind,id)=>{
-  const officer=input('Recorded by','officer');
+  const officer=`<label>Recorded by<input value="${escape(learner?.name)}" readonly></label>`;
   const options=exhibits().map(r=>[r.id,ref(r.id)+' · '+r.description]);
   const linked=id?`<input type="hidden" name="exhibit" value="${id}"><p><strong>Exhibit</strong> ${ref(id)}</p>`:
     select(kind==='video'?'Link to':'Exhibit','exhibit',kind==='video'?[['case','Case TR-2026-014'],...options]:options);
@@ -150,7 +239,7 @@ function edit(kind,id){
 function showExhibit(id){
   const r=exhibits().find(item=>item.id===id);
   const latest=custody(id);
-  const values=[['Evidence type',r.type],['Location found',r.location],['Collected at',timestamp(r.time)],['Recorded by',r.officer],
+  const values=[['Evidence type',r.type],['Location found',r.location],['Collected at',timestamp(r.time)],['Recorded by',r.officer],['Student ID',r.studentId],
     ['Package or seal reference',r.seal],['Current custody',latest?latest.to+' · '+latest.destination:r.officer],['Notes',r.notes]];
   open(ref(id)+' · '+r.description,`<dl>${values.filter(([,value])=>value).map(([label,value])=>`<div><dt>${label}</dt><dd>${escape(value)}</dd></div>`).join('')}</dl>
     <div class="toolbar">${button('Upload video','linked','video:'+id)}${button('Log specialist contact','linked','request:'+id)}${button('Record transfer','linked','transfer:'+id)}${button('Close','close')}</div>`);
@@ -159,7 +248,7 @@ function showContact(id){
   const r=records.find(item=>item.id===id);
   const values=[['Exhibit',ref(r.exhibit)],['Unit contacted',r.specialism],['Person contacted',r.person],
     ['Contact time',timestamp(r.time)],['Purpose of contact',r.description],['Advice or instructions received',r.advice],
-    ['Agreed follow-up actions',r.followup],['Recorded by',r.officer]];
+    ['Agreed follow-up actions',r.followup],['Recorded by',r.officer],['Student ID',r.studentId]];
   open('Specialist contact',`<dl>${values.filter(([,value])=>value).map(([label,value])=>`<div><dt>${label}</dt><dd>${escape(value)}</dd></div>`).join('')}</dl>${button('Close','close')}`);
 }
 document.addEventListener('click',event=>{
@@ -190,6 +279,7 @@ document.addEventListener('submit',async event=>{
   const form=event.target;
   if(!form.dataset.kind)return;
   event.preventDefault();
+  if(!learner)return;
   const save=form.querySelector('[type=submit]'),error=form.querySelector('[role=alert]');
   if(save.disabled)return;
   const entry=Object.fromEntries(new FormData(form));
@@ -203,6 +293,8 @@ document.addEventListener('submit',async event=>{
     error.textContent='Choose a video file.';error.hidden=false;return;
   }
   entry.kind=form.dataset.kind;
+  entry.officer=learner.name;
+  entry.studentId=learner.id;
   entry.recordedAt=new Date().toISOString();
   if(entry.exhibit)entry.exhibit=entry.exhibit==='case'?null:Number(entry.exhibit);
   if((entry.kind==='request'||entry.kind==='transfer')&&!exhibits().some(exhibit=>exhibit.id===entry.exhibit)){
@@ -216,6 +308,7 @@ document.addEventListener('submit',async event=>{
     error.hidden=false;save.disabled=false;return;
   }
   if(dialog.contains(form))dialog.close();
+  if(!learner)return;
   active=entry.kind;
   await refresh();
   if(ready){message('Record saved.');screen.querySelector('[data-add]')?.focus();}
@@ -232,9 +325,8 @@ async function refresh(){
   }
 }
 window.addEventListener('focus',()=>{
-  if(!dialog.open&&!screen.querySelector('form'))refresh();
+  if(learner&&!dialog.open&&!screen.querySelector('form'))refresh();
 });
-refresh();
 </script>
 </body>
 </html>
