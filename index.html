@@ -204,9 +204,9 @@ function row(r){
       const latest=custody(r.id);
       return [button(ref(r.id),'detail',r.id),escape(r.description),escape(r.type),escape(r.location),escape(r.recoveredBy||r.officer),escape(localTime(r.time)),escape(currentCustody(r,latest))];
     }
-    case 'video':return [button(r.description,'play',r.id),escape(ref(r.exhibit)),escape(r.filename||r.file?.name),escape(r.officer)];
-    case 'request':return [button(ref(r.exhibit),'detail',r.exhibit),escape(r.specialism),button(r.description,'contact',r.id),escape(timestamp(r.time)),escape(r.officer)];
-    case 'transfer':return [button(ref(r.exhibit),'detail',r.exhibit),escape(r.from),escape(r.to),escape(r.destination),button(localTime(r.time),'movement',r.id),escape(r.officer||r.from)];
+    case 'video':return [button(r.description||r.filename||'View recording log','play',r.id),escape(ref(r.exhibit)),escape(r.filename||r.file?.name),escape(r.officer)];
+    case 'request':return [button(ref(r.exhibit),'detail',r.exhibit),escape(r.specialism),button(r.description||'View contact','contact',r.id),escape(timestamp(r.time)),escape(r.officer)];
+    case 'transfer':return [button(ref(r.exhibit),'detail',r.exhibit),escape(r.from),escape(r.to),escape(r.destination),button(localTime(r.time)||'View transfer','movement',r.id),escape(r.officer||r.from)];
   }
 }
 function render(){
@@ -225,14 +225,14 @@ function open(title,markup){
   if(!dialog.open)dialog.showModal();
   body.querySelector('input, select, textarea, button')?.focus();
 }
-const input=(label,name,type='text',value='',required=true)=>`<label>${label}<input name="${name}" type="${type}" value="${escape(value)}" ${required?'required':''}></label>`;
+const input=(label,name,type='text',value='')=>`<label>${label}<input name="${name}" type="${type}" value="${escape(value)}"></label>`;
 const notes=(label,name,required=false)=>`<label>${label}<textarea name="${name}" ${required?'required':''}></textarea></label>`;
-const select=(label,name,options)=>`<label>${label}<select name="${name}" required><option value="">Select</option>${options.map(([value,text])=>`<option value="${escape(value)}">${escape(text)}</option>`).join('')}</select></label>`;
+const select=(label,name,options,required=false)=>`<label>${label}<select name="${name}" ${required?'required':''}><option value="">Select</option>${options.map(([value,text])=>`<option value="${escape(value)}">${escape(text)}</option>`).join('')}</select></label>`;
 const fields=(kind,id)=>{
   const officer=`<label>Recorded by<input value="${escape(learner?.name)}" readonly></label>`;
-  const options=exhibits().map(r=>[r.id,ref(r.id)+' · '+r.description]);
+  const options=exhibits().map(r=>[r.id,r.description?ref(r.id)+' · '+r.description:ref(r.id)]);
   const linked=id?`<input type="hidden" name="exhibit" value="${id}"><p><strong>Exhibit</strong> ${escape(ref(id))}</p>`:
-    select(kind==='video'?'Link to':'Exhibit','exhibit',kind==='video'?[['case','Case TR-2026-014'],...options]:options);
+    select(kind==='video'?'Link to':'Exhibit','exhibit',kind==='video'?[['case','Case TR-2026-014'],...options]:options,kind!=='video');
   switch(kind){
     case 'exhibit':return '<label>Exhibit reference<input name="exhibitReference" placeholder="e.g. RSG/1" maxlength="40" required></label>'+input('Description','description')+select('Evidence type','type',['Biological','Digital','Trace','Physical','Other'].map(type=>[type,type]))+
       input('Exact recovery location','location')+input('Recovery date and time (GST)','time','datetime-local')+
@@ -248,7 +248,7 @@ const fields=(kind,id)=>{
       input('Storage transfer date and time (GST)','time','datetime-local')+
       input('Transferred to storage by','storedBy','text',learner?.name)+officer;
     case 'request':return linked+input('Unit contacted','specialism')+input('Person contacted','person')+
-      input('Contact date and time','time','datetime-local')+notes('Purpose of contact','description',true)+
+      input('Contact date and time','time','datetime-local')+notes('Purpose of contact','description')+
       notes('Advice or instructions received (if any)','advice')+notes('Agreed follow-up actions (if any)','followup')+officer;
     case 'transfer':return linked+input('Released by','from','text',id?(custody(id)?.to??exhibits().find(r=>r.id===id)?.officer):'')+
       input('Received by','to')+input('Origin','origin','text',id?(custody(id)?.destination||exhibits().find(r=>r.id===id)?.initialStorage||''):'')+
@@ -281,8 +281,8 @@ function showExhibit(id){
     ['Seal reference',r.seal],['Packaged and sealed by',r.packagedBy],['Initial storage',r.initialStorage],
     ['Current custody',currentCustody(r,latest)],['Photo or diagram reference',r.mediaRef],['Recorded by',r.officer],['Notes',r.notes]];
   const history=movements(id);
-  open(ref(id)+' · '+r.description,details(values)+`<h3>Custody history</h3>`+
-    (history.length?`<ol>${history.map(move=>`<li>${button(localTime(move.time),'movement',move.id)} ${escape(move.from)} → ${escape(move.to)} · ${escape(move.destination)}</li>`).join('')}</ol>`:'<p>No transfers recorded.</p>')+
+  open(r.description?ref(id)+' · '+r.description:ref(id),details(values)+`<h3>Custody history</h3>`+
+    (history.length?`<ol>${history.map(move=>`<li>${button(localTime(move.time)||'View transfer','movement',move.id)} ${escape(move.from)} → ${escape(move.to)} · ${escape(move.destination)}</li>`).join('')}</ol>`:'<p>No transfers recorded.</p>')+
     `<div class="toolbar">${button('Exhibit label','label',id)}${button('Log recording','linked','video:'+id)}${button('Log specialist contact','linked','request:'+id)}${button('Record transfer','linked','transfer:'+id)}${button('Close','close')}</div>`);
 }
 function showLabel(id){
@@ -321,7 +321,7 @@ document.addEventListener('click',event=>{
   if(d.play){
     const r=records.find(item=>item.id===Number(d.play));
     if(r.file)objectUrl=URL.createObjectURL(r.file);
-    open(r.description,details([['Link',ref(r.exhibit)],['Device reference',r.device],['Purpose',r.purpose],
+    open(r.description||r.filename||'Recording log',details([['Link',ref(r.exhibit)],['Device reference',r.device],['Purpose',r.purpose],
       ['Recording location',r.location],['Recording start',localTime(r.start)],['Recording end',localTime(r.end)],
       ['Stored filename',r.filename||r.file?.name],['Storage location',r.storage],['Storage transfer time',localTime(r.time)],
       ['Transferred by',r.storedBy],['Recorded by',r.officer]])+
@@ -354,7 +354,7 @@ document.addEventListener('submit',async event=>{
   if(entry.start&&entry.end&&entry.end<entry.start){
     error.textContent='Recording end must be at or after recording start.';error.hidden=false;return;
   }
-  if(entry.end&&entry.time<entry.end){
+  if(entry.end&&entry.time&&entry.time<entry.end){
     error.textContent='Storage transfer must be at or after recording end.';error.hidden=false;return;
   }
   if(entry.file&&!entry.file.size)delete entry.file;
@@ -375,7 +375,7 @@ document.addEventListener('submit',async event=>{
   }
   entry.officer=learner.name;
   entry.recordedAt=new Date().toISOString();
-  if(entry.exhibit)entry.exhibit=entry.exhibit==='case'?null:Number(entry.exhibit);
+  if('exhibit' in entry)entry.exhibit=entry.exhibit&&entry.exhibit!=='case'?Number(entry.exhibit):null;
   if((entry.kind==='request'||entry.kind==='transfer')&&!exhibits().some(exhibit=>exhibit.id===entry.exhibit)){
     error.textContent='Select a saved exhibit.';error.hidden=false;return;
   }
